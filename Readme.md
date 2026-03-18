@@ -170,4 +170,52 @@ python Generator.py \
 - In `replay` mode, request arrivals are driven by the timestamps in `--request-trace-csv`.
 - In `parametric` mode, arrivals are synthesized from Gamma parameters loaded from `--gamma-params-csv`.
 - Prompts are always sourced from `--dataset-path`, while request lengths and arrival patterns depend on the selected mode.
-```
+
+---
+
+## Ethics and Privacy
+
+FineServe is constructed from real-world LLM serving traces collected from a commercial platform. We take data privacy and ethical considerations seriously and adopt strict measures to ensure that no sensitive or personally identifiable information is exposed.
+
+### Data Anonymization
+
+- The released dataset **does not contain any raw user prompts or model responses**.
+- No user-identifiable information is included, such as:
+  - user names
+  - user IDs
+  - IP addresses
+  - geographic locations
+  - device or account information
+
+### Log-Derived Features Only
+
+- All released fields (e.g., `input_length`, `output_length`) are derived from **system-level logs** rather than raw content.
+- These features are **content-agnostic** and only reflect token-level statistics.
+- No semantic information from user queries is retained.
+
+### Temporal De-identification
+
+- Request timestamps are **fully de-identified**:
+  - Converted to **relative time** (starting from `t = 0`)
+  - No absolute wall-clock time is preserved
+- This prevents reconstruction of real-world user activity patterns.
+
+### Sampling and Aggregation
+
+- All reported statistics, figures, and distributions are derived from **sampled subsets of the original data**, rather than the full production dataset.
+- This sampling process further reduces the risk of reconstructing user behavior patterns or rare events.
+- The released data is therefore **statistically representative but not individually traceable**.
+
+### Task Classification and Processing
+
+- Task-related labels and distributions are obtained through an **automated system-level classification pipeline**.
+- The classification is performed on transient data during processing, and only the **aggregated or labeled results** are retained.
+- No raw inputs used for classification are stored or released.
+- As a result, the dataset **does not support reverse tracing from labels to original user requests**.
+
+### Intended Use
+
+- This dataset is released **solely for research purposes**, including:
+  - LLM serving system evaluation
+  - workload modeling and simulation
+  - scheduling and systems optimization
