@@ -10,7 +10,7 @@ FineServe is an in-the-wild, multi-model LLM serving workload dataset collected 
 
 ## Key Features
 
-- **Realistic workloads**: derived from real-world, multi-model LLM serving traces (desensitized).
+- **Realistic workloads**: derived from desensitized, real-world LLM serving traces, covering **57 models** across **10 task categories** (desensitized).
 - **Fine-grained control**: configurable request arrival patterns and token-length behaviors for benchmarking.
 - **Two generation modes**:
   - **Replay**: directly replay desensitized traces collected from real systems.
@@ -28,6 +28,26 @@ FineServe/
 │     └─ nb/                    # Example parameter files (e.g., NB)
 ├─ README.md
 ```
+
+##  Model Coverage
+
+FineServe captures real-world workloads from a diverse set of production LLMs, covering both Dense and Mixture-of-Experts (MoE) architectures across multiple parameter scales.
+
+The dataset includes multiple representative models deployed in real-world systems. To improve clarity and maintain modular documentation, we provide a detailed breakdown of model categories and corresponding model instances in a separate document.
+
+See [`metadata/models.md`](metadata/models.md) for the full model list and taxonomy.
+
+---
+
+##  Task Coverage
+
+FineServe also captures diverse user intents by categorizing requests into **10 representative task types**, reflecting real-world usage patterns.
+
+Task labels are obtained through an automated classification pipeline and are used to characterize workload heterogeneity across different application scenarios.
+
+See [`metadata/tasks.md`](metadata/tasks.md) for the full task taxonomy and definitions.
+
+---
 
 ## Replay Trace Format
 
