@@ -4,7 +4,9 @@ FineServe is an in-the-wild, multi-model LLM serving workload dataset collected 
 
 ## Architecture
 
-
+<p align="center">
+  <img src="./figs/architecture.png" alt="FineServe Architecture" width="85%">
+</p>
 
 ## Key Features
 
@@ -33,7 +35,7 @@ FineServe captures real-world workloads from a diverse set of production LLMs, c
 
 The dataset includes multiple representative models deployed in real-world systems. To improve clarity and maintain modular documentation, we provide a detailed breakdown of model categories and corresponding model instances in a separate document.
 
-See `[metadata/model.md](metadata/model.md)` for the full model list and taxonomy.
+See [`metadata/model.md`](metadata/model.md) for the full model list and taxonomy.
 
 ---
 
@@ -43,7 +45,7 @@ FineServe also captures diverse user intents by categorizing requests into **10 
 
 Task labels are obtained through an automated classification pipeline and are used to characterize workload heterogeneity across different application scenarios.
 
-See `[metadata/task.md](metadata/task.md)` for the full task taxonomy and definitions.
+See [`metadata/task.md`](metadata/task.md) for the full task taxonomy and definitions.
 
 ---
 
