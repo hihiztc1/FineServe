@@ -4,9 +4,7 @@ FineServe is an in-the-wild, multi-model LLM serving workload dataset collected 
 
 ## Architecture
 
-<div align="center">
-  <img src="figs/architecture.png" width="85%">
-</div>
+
 
 ## Key Features
 
@@ -29,23 +27,23 @@ FineServe/
 ├─ README.md
 ```
 
-##  Model Coverage
+## Model Coverage
 
 FineServe captures real-world workloads from a diverse set of production LLMs, covering both Dense and Mixture-of-Experts (MoE) architectures across multiple parameter scales.
 
 The dataset includes multiple representative models deployed in real-world systems. To improve clarity and maintain modular documentation, we provide a detailed breakdown of model categories and corresponding model instances in a separate document.
 
-See [`metadata/models.md`](metadata/models.md) for the full model list and taxonomy.
+See `[metadata/model.md](metadata/models.md)` for the full model list and taxonomy.
 
 ---
 
-##  Task Coverage
+## Task Coverage
 
 FineServe also captures diverse user intents by categorizing requests into **10 representative task types**, reflecting real-world usage patterns.
 
 Task labels are obtained through an automated classification pipeline and are used to characterize workload heterogeneity across different application scenarios.
 
-See [`metadata/tasks.md`](metadata/tasks.md) for the full task taxonomy and definitions.
+See `[metadata/task.md](metadata/tasks.md)` for the full task taxonomy and definitions.
 
 ---
 
@@ -56,40 +54,36 @@ In replay mode, FineServe consumes a CSV file that records desensitized request 
 ### Field Description
 
 - **input_length (int)**  
-  Number of input tokens.
-
+Number of input tokens.
 - **output_length (int)**  
-  Number of generated tokens.
-
+Number of generated tokens.
 - **latency (float)**  
-  Observed request latency in seconds.  
-
+Observed request latency in seconds.  
 - **timestamp (float)**  
-  Arrival time of the request (in milliseconds).  
-  This is a relative timestamp, where the first request typically starts at `t = 0.0`.
-
+Arrival time of the request (in milliseconds).  
+This is a relative timestamp, where the first request typically starts at `t = 0.0`.
 - **architecture (string)**  
-  Model architecture type, e.g., `Dense` or `MoE`.
-
+Model architecture type, e.g., `Dense` or `MoE`.
 - **scale (string)**  
-  Model size category, e.g., `<10B`, `10to30B`, `30to100B`, `>100B`.
+Model size category, e.g., `<10B`, `10to30B`, `30to100B`, `>100B`.
 
 ### Example
 
-| input_length | output_length | latency | timestamp  | architecture | scale |
-|-------------|--------------|--------|------------|-------------|-------|
-| 631         | 64           | 0.0021 | 0.0        | MoE         | >100B |
-| 763         | 160          | 0.0022 | 5799279.0  | MoE         | >100B |
-| 2794        | 80           | 0.0012 | 5827389.0  | MoE         | >100B |
-| 4766        | 403          | 0.0013 | 5828345.0  | MoE         | >100B |
-| 5484        | 125          | 0.0013 | 5851573.0  | MoE         | >100B |
+
+| input_length | output_length | latency | timestamp | architecture | scale |
+| ------------ | ------------- | ------- | --------- | ------------ | ----- |
+| 631          | 64            | 0.0021  | 0.0       | MoE          | >100B |
+| 763          | 160           | 0.0022  | 5799279.0 | MoE          | >100B |
+| 2794         | 80            | 0.0012  | 5827389.0 | MoE          | >100B |
+| 4766         | 403           | 0.0013  | 5828345.0 | MoE          | >100B |
+| 5484         | 125           | 0.0013  | 5851573.0 | MoE          | >100B |
+
 
 ### Notes
 
 - Requests are replayed based on **inter-arrival gaps derived from `timestamp`**.
 - Only `input_length`, `output_length`, and `timestamp` are required for replay.
 - Additional fields (e.g., `latency`, `architecture`, `scale`) are optional and mainly used for analysis, filtering, or stratified workload generation.
-
 
 ## Quick Start
 
@@ -151,8 +145,8 @@ python Generator.py \
 - `--input-length-column` (default: `input_length`)
 - `--output-length-column` (default: `output_length`)
 - `--time-scale` (default: 1.0)  
-  Controls time compression of the replay trace.  
-  A larger value compresses inter-arrival intervals, resulting in higher effective request rate and increased concurrency.
+Controls time compression of the replay trace.  
+A larger value compresses inter-arrival intervals, resulting in higher effective request rate and increased concurrency.
 
 ---
 
@@ -239,3 +233,4 @@ FineServe is constructed from real-world LLM serving traces collected from a com
   - LLM serving system evaluation
   - workload modeling and simulation
   - scheduling and systems optimization
+
