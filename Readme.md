@@ -4,7 +4,9 @@ FineServe is an in-the-wild, multi-model LLM serving workload dataset collected 
 
 ## Architecture
 
-
+<div align="center">
+  <img src="figs/architecture.png" alt="Temporal evolution of Gamma arrival parameters" width="90%">
+</div>
 
 ## Key Features
 
@@ -33,7 +35,7 @@ FineServe captures real-world workloads from a diverse set of production LLMs, c
 
 The dataset includes multiple representative models deployed in real-world systems. To improve clarity and maintain modular documentation, we provide a detailed breakdown of model categories and corresponding model instances in a separate document.
 
-See `[metadata/model.md](metadata/model.md)` for the full model list and taxonomy.
+See [metadata/model.md](metadata/model.md) for the full model list and taxonomy.
 
 ---
 
@@ -43,7 +45,7 @@ FineServe also captures diverse user intents by categorizing requests into **10 
 
 Task labels are obtained through an automated classification pipeline and are used to characterize workload heterogeneity across different application scenarios.
 
-See `[metadata/task.md](metadata/task.md)` for the full task taxonomy and definitions.
+See [metadata/task.md](metadata/task.md) for the full task taxonomy and definitions.
 
 ---
 
@@ -152,7 +154,7 @@ A larger value compresses inter-arrival intervals, resulting in higher effective
 
 ### 3) Parametric mode
 
-Parametric mode synthesizes request arrivals using parameterized statistical models. By default, it uses Gamma parameters for inter-arrival timing, and can optionally enable NB-based 1ms micro-burst modeling for burst-dominant workloads such as `Dense_lt10B`.
+Parametric mode synthesizes request arrivals using parameterized statistical models. By default, it uses Gamma parameters for inter-arrival timing, and can optionally enable NB-based micro-burst modeling for burst-dominant workloads. See [Parametric Modeling Details](metadata/Parametric.md) for full details.
 
 You can start parametric mode in **two ways**:
 
