@@ -5,7 +5,7 @@ FineServe is an in-the-wild, multi-model LLM serving workload dataset collected 
 ## Architecture
 
 <div align="center">
-  <img src="figs/architecture.png" alt="Temporal evolution of Gamma arrival parameters" width="90%">
+  <img src="figs/architecture.png" alt="Architecture of FineServe" width="90%">
 </div>
 
 ## Key Features

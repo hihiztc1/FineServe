@@ -10,7 +10,6 @@ This design allows FineServe to reproduce both:
 - long-term traffic patterns (e.g., daily cycles)
 - short-term high concurrency (bursty arrivals)
 
----
 
 ## 1. Gamma (Inter-Arrival Timing)
 
@@ -41,13 +40,9 @@ FineServe provides **Gamma parameters** derived from 4 months real-world serving
 
 Each row represents the **average arrival pattern within a 5-minute window**
 
-
 <div align="center">
-  <img src="figs/gamma.png" alt="Temporal evolution of Gamma arrival parameters" width="90%">
+  <img src="../figs/gamma.png" alt="Temporal evolution of Gamma arrival parameters" width="80%">
 </div>
-
----
-
 
 ### Gamma Extension Modes
 
@@ -65,7 +60,6 @@ Best for:
 - realistic replay-like simulation  
 - reproducible benchmarking  
 
----
 
 #### `model_sample`
 
@@ -101,7 +95,6 @@ To capture this behavior, FineServe introduces a **Negative Binomial (NB) layer*
 
 At each time slot, NB determines how many requests are emitted.
 
----
 
 ### NB Parameter File
 
@@ -118,8 +111,6 @@ FineServe provides NB parameters for burst-dominant workloads:
 
 This reflects that strong micro-burst behavior is primarily observed in this category.
 
-
----
 
 ### NB Enablement (Current Behavior)
 
