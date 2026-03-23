@@ -4,9 +4,7 @@ FineServe is an in-the-wild, multi-model LLM serving workload dataset collected 
 
 ## Architecture
 
-<p align="center">
-  <img src="./figs/architecture.png" alt="FineServe Architecture" width="85%">
-</p>
+
 
 ## Key Features
 
@@ -24,7 +22,7 @@ FineServe/
 ├─ datasets/
 │  ├─ replay/                    # Real trace CSVs
 │  └─ Parametric/               # Parametric workload configurations
-│     ├─ cv/                    # Per-window gamma parameters
+│     ├─ gamma/                    # Per-window gamma parameters
 │     └─ nb/                    # Example parameter files (e.g., NB)
 ├─ README.md
 ```
@@ -35,7 +33,7 @@ FineServe captures real-world workloads from a diverse set of production LLMs, c
 
 The dataset includes multiple representative models deployed in real-world systems. To improve clarity and maintain modular documentation, we provide a detailed breakdown of model categories and corresponding model instances in a separate document.
 
-See [`metadata/model.md`](metadata/model.md) for the full model list and taxonomy.
+See `[metadata/model.md](metadata/model.md)` for the full model list and taxonomy.
 
 ---
 
@@ -45,7 +43,7 @@ FineServe also captures diverse user intents by categorizing requests into **10 
 
 Task labels are obtained through an automated classification pipeline and are used to characterize workload heterogeneity across different application scenarios.
 
-See [`metadata/task.md`](metadata/task.md) for the full task taxonomy and definitions.
+See `[metadata/task.md](metadata/task.md)` for the full task taxonomy and definitions.
 
 ---
 
@@ -116,9 +114,9 @@ python Generator.py \
   --port 8000 \
   --mode poisson \
   --request-rate 50 \
-  --dataset-path "/path/to/dataset" \
-  --model "your-model-path" \
-  --tokenizer "your-tokenizer-path" \
+  --dataset-path "/path/to/dataset.json" \
+  --model "/path/to/model" \
+  --tokenizer "/path/to/tokenizer" \
   --num-prompts 1000
 ```
 
@@ -136,9 +134,9 @@ python Generator.py \
   --mode replay \
   --request-trace-csv "datasets/replay/Dense_10to30B.csv" \
   --time-scale 1.0 \
-  --dataset-path "/path/to/dataset" \
-  --model "your-model-path" \
-  --tokenizer "your-tokenizer-path"
+  --dataset-path "/path/to/dataset.json" \
+  --model "/path/to/model" \
+  --tokenizer "/path/to/tokenizer"
 ```
 
 **Optional replay arguments**
@@ -154,7 +152,13 @@ A larger value compresses inter-arrival intervals, resulting in higher effective
 
 ### 3) Parametric mode
 
-Parametric mode synthesizes request arrivals from per-window Gamma parameters. Optionally, request lengths can also be loaded from a separate CSV.
+Parametric mode synthesizes request arrivals using parameterized statistical models. By default, it uses Gamma parameters for inter-arrival timing, and can optionally enable NB-based 1ms micro-burst modeling for burst-dominant workloads such as `Dense_lt10B`.
+
+You can start parametric mode in **two ways**:
+
+#### Option A: use `--model-class` (recommended)
+
+This automatically resolves the corresponding Gamma parameter file under `datasets/Parametric/gamma/`.
 
 ```bash
 python Generator.py \
@@ -162,25 +166,101 @@ python Generator.py \
   --host 127.0.0.1 \
   --port 8000 \
   --mode parametric \
-  --gamma-params-csv "datasets/cv/example_gamma.csv" \
-  --request-lengths-csv "datasets/replay/example_lengths.csv" \
-  --dataset-path "/path/to/dataset" \
-  --model "your-model-path" \
-  --tokenizer "your-tokenizer-path" \
+  --model-class Dense_lt10B \
+  --dataset-path "/path/to/dataset.json" \
+  --model "/path/to/model" \
+  --tokenizer "/path/to/tokenizer" \
   --num-prompts 1000
 ```
 
-**Required parametric arguments**
+#### Option B: explicitly provide a Gamma CSV
 
-- `--gamma-params-csv`: CSV file containing Gamma parameters
+```bash
+python Generator.py \
+  --backend vllm \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --mode parametric \
+  --gamma-params-csv "datasets/Parametric/gamma/Dense_lt10B_gamma_5min.csv" \
+  --dataset-path "/path/to/dataset.json" \
+  --model "/path/to/model" \
+  --tokenizer "/path/to/tokenizer" \
+  --num-prompts 1000
+```
+### Parametric mode options
 
-**Optional parametric arguments**
+#### Gamma extension behavior
 
-- `--request-lengths-csv`: CSV file containing `input_length` and `output_length`
+- `--parametric-extension-mode`: how to extend finite Gamma rows to longer runs  
+  Choices:
+  - `repeat_jitter` (default): repeat windows cyclically and add small multiplicative perturbations
+  - `model_sample`: fit a global lognormal model and sample synthetic Gamma parameters per window
 
+- `--parametric-jitter-ratio`: relative noise level for `repeat_jitter`  
+  Default: `0.05`
+
+- `--parametric-window-seconds`: duration of each parametric window in seconds  
+  Default: `300`
+
+Example using `repeat_jitter` with custom jitter ratio:
+
+```bash
+python Generator.py \
+  --backend vllm \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --mode parametric \
+  --model-class Dense_lt10B \
+  --parametric-extension-mode repeat_jitter \
+  --parametric-jitter-ratio 0.10 \
+  --dataset-path "/path/to/dataset.json" \
+  --model "/path/to/model" \
+  --tokenizer "/path/to/tokenizer" \
+  --num-prompts 1000
+```
+
+Example using `model_sample`:
+
+```bash
+python Generator.py \
+  --backend vllm \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --mode parametric \
+  --model-class Dense_10to30B \
+  --parametric-extension-mode model_sample \
+  --parametric-window-seconds 300 \
+  --dataset-path "/path/to/dataset.json" \
+  --model "/path/to/model" \
+  --tokenizer "/path/to/tokenizer" \
+  --num-prompts 1000
+```
+
+#### Optional NB micro-burst modeling
+
+For burst-dominant workloads such as `Dense_lt10B`, NB-based 1ms micro-burst modeling is automatically enabled unless explicitly disabled.
+
+- `--parametric-nb-json`: manually specify an NB JSON file
+- `--disable-parametric-nb-lt10b`: disable automatic NB enablement for `lt10B`
+
+Example with manual NB override:
+
+```bash
+python Generator.py \
+  --backend vllm \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --mode parametric \
+  --model-class Dense_lt10B \
+  --parametric-nb-json "datasets/Parametric/nb/Dense_lt10B_nb.json" \
+  --dataset-path "/path/to/dataset.json" \
+  --model "/path/to/model" \
+  --tokenizer "/path/to/tokenizer" \
+  --num-prompts 1000
+```
 ---
 
-### 5) Notes
+### 4) Notes
 
 - In `poisson` mode, request arrivals are controlled by `--request-rate`.
 - In `replay` mode, request arrivals are driven by the timestamps in `--request-trace-csv`.

@@ -63,6 +63,42 @@ def remove_suffix(text: str, suffix: str) -> str:
     return text[:-len(suffix)] if text.endswith(suffix) else text
 
 
+def load_nb_params_from_json(nb_json_path: str) -> Dict[str, float]:
+    if not os.path.isfile(nb_json_path):
+        raise FileNotFoundError(f"NB JSON file not found: {nb_json_path}")
+
+    with open(nb_json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if "nb_mu" not in data or "nb_alpha" not in data:
+        raise ValueError(
+            f"NB JSON must contain 'nb_mu' and 'nb_alpha'. Got keys: {list(data.keys())}"
+        )
+
+    nb_mu = float(data["nb_mu"])
+    nb_alpha = float(data["nb_alpha"])
+    if nb_mu <= 0:
+        raise ValueError(f"nb_mu must be > 0, got {nb_mu}")
+    if nb_alpha < 0:
+        raise ValueError(f"nb_alpha must be >= 0, got {nb_alpha}")
+
+    return {"nb_mu": nb_mu, "nb_alpha": nb_alpha}
+
+
+def sample_negative_binomial_count(mu: float, alpha: float) -> int:
+    """Sample count from NB(mean=mu, var=mu+alpha*mu^2)."""
+    mu = max(float(mu), 1e-12)
+    alpha = max(float(alpha), 0.0)
+    if alpha < 1e-12:
+        return int(np.random.poisson(mu))
+
+    # Convert to NumPy's parameterization:
+    # n = r, p where mean = r*(1-p)/p, and r = 1/alpha.
+    r = 1.0 / alpha
+    p = r / (r + mu)
+    return int(np.random.negative_binomial(r, p))
+
+
 def get_auth_headers() -> Dict[str, str]:
     api_key = os.environ.get("OPENAI_API_KEY")
     if api_key:
@@ -861,6 +897,10 @@ async def get_request_parametric(
     **kwargs,
 ) -> AsyncGenerator[Tuple[str, int, int], None]:
     gamma_params = kwargs.get('gamma_params', None)
+    extension_mode = kwargs.get("parametric_extension_mode", "repeat_jitter")
+    jitter_ratio = kwargs.get("parametric_jitter_ratio", 0.05)
+    window_duration = kwargs.get("parametric_window_seconds", 300.0)
+    nb_params = kwargs.get("nb_params", None)
     
     if gamma_params is None or len(gamma_params) == 0:
         print("Warning: No gamma parameters provided, using uniform intervals")
@@ -872,32 +912,146 @@ async def get_request_parametric(
     start_time = time.perf_counter()
     request_idx = 0
     window_idx = 0
-    window_start_time = 0.0  
-    window_duration = 300.0  
+    model_shape = 0.0
+    model_scale_ms = 0.0
+    log_mu = None
+    log_cov = None
+    gamma_base_mu_ms = 0.0
     
     print(f"Starting parametric request generation with {len(gamma_params)} gamma parameter windows")
     print(f"Total requests: {len(input_requests)}")
+    print(f"Parametric extension mode: {extension_mode}")
+    if extension_mode == "repeat_jitter":
+        print(f"Jitter ratio: {jitter_ratio:.3f}")
+    elif extension_mode == "model_sample":
+        # Global lognormal model in log-space:
+        # [log(shape), log(scale_ms)] ~ N(mu, cov)
+        shapes = np.array([row[2] for row in gamma_params], dtype=float)
+        scales_ms = np.array([row[3] for row in gamma_params], dtype=float)
+        shapes = np.clip(shapes, 1e-12, None)
+        scales_ms = np.clip(scales_ms, 1e-12, None)
+        log_samples = np.column_stack((np.log(shapes), np.log(scales_ms)))
+        log_mu = log_samples.mean(axis=0)
+        log_cov = np.cov(log_samples, rowvar=False)
+        if np.ndim(log_cov) == 0:
+            log_cov = np.array([[float(log_cov), 0.0], [0.0, float(log_cov)]], dtype=float)
+        log_cov = np.asarray(log_cov, dtype=float) + np.eye(2) * 1e-8
+        sampled = np.random.multivariate_normal(log_mu, log_cov)
+        model_shape = max(float(np.exp(sampled[0])), 1e-6)
+        model_scale_ms = max(float(np.exp(sampled[1])), 1e-6)
+        print("Using global lognormal parameter modeling")
+        print(
+            f"Initial modeled params: shape={model_shape:.4f}, scale={model_scale_ms:.4f} ms"
+        )
+
+    if nb_params is not None:
+        print(
+            "NB micro-burst layer enabled: "
+            f"nb_mu={nb_params['nb_mu']:.6f}, nb_alpha={nb_params['nb_alpha']:.6f}"
+        )
+        gamma_mean_intervals_ms = np.array(
+            [max(row[2] * row[3], 1e-6) for row in gamma_params], dtype=float
+        )
+        gamma_base_mu_ms = float(np.mean(1.0 / gamma_mean_intervals_ms))
+        print(f"NB scaling baseline from gamma: {gamma_base_mu_ms:.8f} req/ms")
+
+    def get_current_gamma_params(current_window_idx: int) -> Tuple[float, float]:
+        nonlocal window_idx, model_shape, model_scale_ms
+        if extension_mode == "model_sample":
+            if current_window_idx > window_idx:
+                window_idx = current_window_idx
+                sampled = np.random.multivariate_normal(log_mu, log_cov)
+                model_shape = max(float(np.exp(sampled[0])), 1e-6)
+                model_scale_ms = max(float(np.exp(sampled[1])), 1e-6)
+                print(
+                    f"Switching to synthetic window {window_idx + 1}: "
+                    f"shape={model_shape:.4f}, scale={model_scale_ms:.4f} ms"
+                )
+            return model_shape, model_scale_ms
+
+        # Default mode: cycle by row index to preserve periodic pattern.
+        active_idx = current_window_idx % len(gamma_params)
+        if active_idx != window_idx:
+            window_idx = active_idx
+            print(
+                f"Switching to gamma parameter window {window_idx + 1}/{len(gamma_params)}: "
+                f"shape={gamma_params[window_idx][2]:.4f}, scale={gamma_params[window_idx][3]:.4f}"
+            )
+        gamma_shape_local = gamma_params[active_idx][2]
+        gamma_scale_ms_local = gamma_params[active_idx][3]
+        if extension_mode == "repeat_jitter":
+            # Apply small multiplicative jitter to preserve periodicity while adding variability.
+            shape_factor = np.clip(np.random.normal(1.0, jitter_ratio), 0.5, 1.5)
+            scale_factor = np.clip(np.random.normal(1.0, jitter_ratio), 0.5, 1.5)
+            gamma_shape_local = max(gamma_shape_local * shape_factor, 1e-6)
+            gamma_scale_ms_local = max(gamma_scale_ms_local * scale_factor, 1e-6)
+        return gamma_shape_local, gamma_scale_ms_local
+
+    if nb_params is not None:
+        # 1ms micro-time generation:
+        # sample how many requests happen in each millisecond from NB,
+        # with mu scaled by current gamma-window intensity.
+        while request_idx < len(input_requests):
+            elapsed_time = time.perf_counter() - start_time
+            current_window_idx = int(elapsed_time / window_duration) if window_duration > 0 else 0
+            gamma_shape, gamma_scale_ms = get_current_gamma_params(current_window_idx)
+            target_mu_ms = 1.0 / max(gamma_shape * gamma_scale_ms, 1e-6)
+            mu_scale = target_mu_ms / max(gamma_base_mu_ms, 1e-12)
+            current_nb_mu = max(nb_params["nb_mu"] * mu_scale, 1e-9)
+            n_arrivals = sample_negative_binomial_count(current_nb_mu, nb_params["nb_alpha"])
+
+            for _ in range(n_arrivals):
+                if request_idx >= len(input_requests):
+                    break
+                yield input_requests[request_idx]
+                request_idx += 1
+
+            if request_idx < len(input_requests):
+                await asyncio.sleep(0.001)
+        return
     
     for request in input_requests:
         elapsed_time = time.perf_counter() - start_time
-        current_window_idx = int(elapsed_time / window_duration)
+        current_window_idx = int(elapsed_time / window_duration) if window_duration > 0 else 0
         
-        if current_window_idx > window_idx and current_window_idx < len(gamma_params):
-            window_idx = current_window_idx
-            window_start_time = window_idx * window_duration
-            print(f"Switching to gamma parameter window {window_idx + 1}/{len(gamma_params)}: "
-                  f"shape={gamma_params[window_idx][2]:.4f}, scale={gamma_params[window_idx][3]:.4f}")
-        
-        if window_idx >= len(gamma_params):
-            window_idx = len(gamma_params) - 1
+        if extension_mode == "model_sample":
+            if current_window_idx > window_idx:
+                window_idx = current_window_idx
+                sampled = np.random.multivariate_normal(log_mu, log_cov)
+                model_shape = max(float(np.exp(sampled[0])), 1e-6)
+                model_scale_ms = max(float(np.exp(sampled[1])), 1e-6)
+                print(
+                    f"Switching to synthetic window {window_idx + 1}: "
+                    f"shape={model_shape:.4f}, scale={model_scale_ms:.4f} ms"
+                )
+        else:
+            # Default mode: cycle by row index to preserve periodic pattern.
+            active_idx = current_window_idx % len(gamma_params)
+            if active_idx != window_idx:
+                window_idx = active_idx
+                print(
+                    f"Switching to gamma parameter window {window_idx + 1}/{len(gamma_params)}: "
+                    f"shape={gamma_params[window_idx][2]:.4f}, scale={gamma_params[window_idx][3]:.4f}"
+                )
         
         yield request
         request_idx += 1
         
         if request_idx < len(input_requests):
-            gamma_shape = gamma_params[window_idx][2]
-            gamma_scale_ms = gamma_params[window_idx][3]  
-            
+            if extension_mode == "model_sample":
+                gamma_shape = model_shape
+                gamma_scale_ms = model_scale_ms
+            else:
+                gamma_shape = gamma_params[active_idx][2]
+                gamma_scale_ms = gamma_params[active_idx][3]
+
+            if extension_mode == "repeat_jitter":
+                # Apply small multiplicative jitter to preserve periodicity while adding variability.
+                shape_factor = np.clip(np.random.normal(1.0, jitter_ratio), 0.5, 1.5)
+                scale_factor = np.clip(np.random.normal(1.0, jitter_ratio), 0.5, 1.5)
+                gamma_shape = max(gamma_shape * shape_factor, 1e-6)
+                gamma_scale_ms = max(gamma_scale_ms * scale_factor, 1e-6)
+
             gamma_scale_sec = gamma_scale_ms / 1000.0
             
             interval = np.random.gamma(gamma_shape, gamma_scale_sec)
@@ -910,6 +1064,7 @@ def load_gamma_params_from_cv_csv(
     window_end_column: str = "window_end_ms",
     gamma_shape_column: str = "gamma_shape",
     gamma_scale_column: str = "gamma_scale",
+    window_duration_sec: float = 300.0,
 ) -> List[Tuple[int, int, float, float]]:
     if not os.path.isfile(csv_path):
         raise FileNotFoundError(f"CV CSV file not found: {csv_path}")
@@ -918,12 +1073,7 @@ def load_gamma_params_from_cv_csv(
     
     df = pd.read_csv(csv_path)
     
-    required_columns = [
-        window_start_column,
-        window_end_column,
-        gamma_shape_column,
-        gamma_scale_column,
-    ]
+    required_columns = [gamma_shape_column, gamma_scale_column]
     
     for col in required_columns:
         if col not in df.columns:
@@ -932,10 +1082,19 @@ def load_gamma_params_from_cv_csv(
                 f"Available columns: {list(df.columns)}"
             )
     
-    window_starts = df[window_start_column].values.astype(int)
-    window_ends = df[window_end_column].values.astype(int)
     gamma_shapes = df[gamma_shape_column].values.astype(float)
     gamma_scales = df[gamma_scale_column].values.astype(float)
+
+    # Privacy-preserving relative window mode:
+    # each CSV row represents one fixed-size window (default: 5 minutes).
+    window_duration_ms = int(window_duration_sec * 1000)
+    row_indices = np.arange(len(df), dtype=int)
+    window_starts = row_indices * window_duration_ms
+    window_ends = window_starts + window_duration_ms
+    print(
+        "Using relative windows by row index "
+        f"({window_duration_sec:.1f}s per row)"
+    )
     
     gamma_params = list(zip(
         window_starts,
@@ -991,20 +1150,72 @@ async def get_request(
     elif mode == "parametric":
         print(f"\n=== Parametric Mode Configuration ===")
         print("Using parametric request generation with gamma distribution")
-        
-        if not hasattr(args, 'gamma_params_csv') or not args.gamma_params_csv:
-            raise ValueError("parametric mode requires --gamma-params-csv argument")
-        
-        print(f"Loading gamma parameters from: {args.gamma_params_csv}")
+
+        # Resolve parametric data paths: explicit path has highest priority,
+        # otherwise infer from --model-class and --parametric-data-root.
+        gamma_csv_path = getattr(args, "gamma_params_csv", None)
+        model_class = getattr(args, "model_class", None)
+        parametric_data_root = Path(
+            getattr(
+                args,
+                "parametric_data_root",
+                str(Path(__file__).resolve().parent / "datasets" / "Parametric"),
+            )
+        )
+        if not gamma_csv_path:
+            if not model_class:
+                raise ValueError(
+                    "parametric mode requires either --gamma-params-csv "
+                    "or --model-class"
+                )
+            normalized_class = model_class
+            if normalized_class.lower().endswith("_gamma_5min"):
+                normalized_class = normalized_class[:-11]
+            gamma_csv_path = str(
+                parametric_data_root / "gamma" / f"{normalized_class}_gamma_5min.csv"
+            )
+            print(
+                f"Auto-resolved gamma CSV from model class '{model_class}': "
+                f"{gamma_csv_path}"
+            )
+
+        print(f"Loading gamma parameters from: {gamma_csv_path}")
         gamma_params = load_gamma_params_from_cv_csv(
-            csv_path=args.gamma_params_csv,
+            csv_path=gamma_csv_path,
             window_start_column=getattr(args, 'window_start_column', 'window_start_ms'),
             window_end_column=getattr(args, 'window_end_column', 'window_end_ms'),
             gamma_shape_column=getattr(args, 'gamma_shape_column', 'gamma_shape'),
             gamma_scale_column=getattr(args, 'gamma_scale_column', 'gamma_scale'),
+            window_duration_sec=getattr(args, 'parametric_window_seconds', 300.0),
         )
         
         parametric_kwargs['gamma_params'] = gamma_params
+        parametric_kwargs['parametric_extension_mode'] = getattr(
+            args, 'parametric_extension_mode', 'repeat_jitter'
+        )
+        parametric_kwargs['parametric_jitter_ratio'] = getattr(
+            args, 'parametric_jitter_ratio', 0.05
+        )
+        parametric_kwargs['parametric_window_seconds'] = getattr(
+            args, 'parametric_window_seconds', 300.0
+        )
+        gamma_csv_name = os.path.basename(gamma_csv_path).lower()
+        model_class_name = (model_class or "").lower()
+        if (
+            not getattr(args, "disable_parametric_nb_lt10b", False)
+            and ("lt10b" in gamma_csv_name or "lt10b" in model_class_name)
+        ):
+            nb_json_path = getattr(args, "parametric_nb_json", None)
+            if not nb_json_path:
+                nb_class = model_class if model_class else "Dense_lt10B"
+                if nb_class.lower().endswith("_gamma_5min"):
+                    nb_class = nb_class[:-11]
+                candidate = parametric_data_root / "nb" / f"{nb_class}_nb.json"
+                if not candidate.exists():
+                    candidate = parametric_data_root / "nb" / "Dense_lt10B_nb.json"
+                nb_json_path = str(candidate)
+            print(f"Enabling NB micro-burst model for lt10B from: {nb_json_path}")
+            parametric_kwargs["nb_params"] = load_nb_params_from_json(nb_json_path)
         
         if hasattr(args, 'request_lengths_csv') and args.request_lengths_csv:
             print(f"Loading request lengths from: {args.request_lengths_csv}")
@@ -1015,7 +1226,8 @@ async def get_request(
             )
             parametric_kwargs['request_lengths'] = request_lengths
         
-        dataset_mode = "parametric"
+        async for request in get_request_parametric(input_requests, **parametric_kwargs):
+            yield request
         print(f"===\n")
     
     else:
@@ -1469,7 +1681,11 @@ def run_benchmark(args_):
     elif mode == "parametric":
         # Parametric mode: Use parameter synthesis
         print(f"\n=== Parametric Mode Configuration ===")
-        print("Using parametric request generation (to be implemented)")
+        print("Using parametric request generation")
+        if args.parametric_jitter_ratio < 0:
+            raise ValueError("--parametric-jitter-ratio must be >= 0")
+        if args.parametric_window_seconds <= 0:
+            raise ValueError("--parametric-window-seconds must be > 0")
         # parametric_kwargs = {...}
         dataset_mode = "parametric"
         print(f"===\n")
@@ -1539,12 +1755,20 @@ if __name__ == "__main__":
     parser.add_argument("--warmup-requests", type=int, default=1, help="Number of warmup requests")
     
     # Parametric mode arguments
-    parser.add_argument("--gamma-params-csv", type=str, default=None, help="CSV file with gamma distribution parameters (for parametric mode)")
+    parser.add_argument("--model-class", type=str, default=None, help="Model class for parametric mode (e.g., Dense_lt10B, Dense_10to30B, MoE_gt100B)")
+    parser.add_argument("--parametric-data-root", type=str, default=str(Path(__file__).resolve().parent / "datasets" / "Parametric"), help="Root directory containing gamma/ and nb/ folders")
+    parser.add_argument("--gamma-params-csv", type=str, default=None, help="Gamma CSV path override (optional if --model-class is provided)")
     parser.add_argument("--window-start-column", type=str, default="window_start_ms", help="Name of window start column in gamma params CSV (milliseconds)")
     parser.add_argument("--window-end-column", type=str, default="window_end_ms", help="Name of window end column in gamma params CSV (milliseconds)")
     parser.add_argument("--gamma-shape-column", type=str, default="gamma_shape", help="Name of gamma shape parameter column in CSV")
     parser.add_argument("--gamma-scale-column", type=str, default="gamma_scale", help="Name of gamma scale parameter column in CSV")
     parser.add_argument("--request-lengths-csv", type=str, default=None, help="CSV file with request input/output lengths (optional for parametric mode)")
+    parser.add_argument("--parametric-window-seconds", type=float, default=300.0, help="Duration of each parametric window in seconds (default: 300)")
+    parser.add_argument("--parametric-extension-mode", type=str, default="repeat_jitter", choices=["repeat_jitter", "model_sample"],
+        help="How to extend finite gamma rows to longer runs: repeat_jitter (default) or model_sample (global lognormal)")
+    parser.add_argument("--parametric-jitter-ratio", type=float, default=0.05, help="Relative noise level for repeat_jitter mode (e.g., 0.05 = 5%% std)")
+    parser.add_argument("--parametric-nb-json", type=str, default=None, help="NB JSON path override for 1ms micro-burst modeling")
+    parser.add_argument("--disable-parametric-nb-lt10b", action="store_true", help="Disable automatic NB 1ms micro-burst modeling for lt10B class")
     
     parser.add_argument("--request-trace-csv", type=str, default=None, help="CSV file with request timestamps (microseconds) for replay")
     parser.add_argument("--timestamp-column", type=str, default="timestamp", help="Name of timestamp column in CSV (microseconds)")
