@@ -1,7 +1,7 @@
 # Model Coverage
 
 FineServe captures real-world workloads from a diverse set of production LLMs.  
-The current release covers **57 models** spanning both **Dense** and **Mixture-of-Experts (MoE)** architectures, across multiple parameter scales.
+The current release covers **50+ models** spanning both **Dense** and **Mixture-of-Experts (MoE)** architectures, across multiple parameter scales.
 
 ## Overview
 

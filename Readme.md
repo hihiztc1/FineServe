@@ -10,7 +10,7 @@ FineServe is an in-the-wild, multi-model LLM serving workload dataset collected 
 
 ## Key Features
 
-- **Realistic workloads**: derived from desensitized, real-world LLM serving traces, covering **57 models** across **10 task categories** (desensitized).
+- **Realistic workloads**: derived from desensitized, real-world LLM serving traces, covering **55 models** across **10 task categories** (desensitized).
 - **Fine-grained control**: configurable request arrival patterns and token-length behaviors for benchmarking.
 - **Two generation modes**:
   - **Replay**: directly replay desensitized traces collected from real systems.
