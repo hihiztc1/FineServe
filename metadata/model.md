@@ -31,7 +31,6 @@ The current release covers **57 models** spanning both **Dense** and **Mixture-o
 
 | Model | Series | Release |
 |---|---|---|
-| Claude-3.7-Sonnet | Claude | Feb-25 |
 | Qwen3-4B-FP8 | Qwen | Jan-25 |
 | Qwen3-8B-FP8 | Qwen | Jan-25 |
 | Qwen2.5-7B-Instruct | Qwen | Oct-24 |

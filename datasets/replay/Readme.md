@@ -43,7 +43,7 @@ git lfs pull
 
 ## Extended Dataset (Continuously Updated)
 
-A larger release (~172M requests across multiple model classes and scales) is available on Google Drive and is **continuously being expanded**:
+A larger release (~172M requests) is available on Google Drive and is **continuously being expanded**:
 
 > [FineServe Dataset on Google Drive](https://drive.google.com/drive/folders/1iuTnV7IUj41-tnVLvCMTR2ANifRaEajA?usp=drive_link)
 
